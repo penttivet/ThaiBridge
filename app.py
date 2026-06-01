@@ -120,18 +120,19 @@ async function toggleRecord() {
   if (!isRecording) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
-        : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
-      mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      const types = ['audio/mp4','audio/webm;codecs=opus','audio/webm','audio/ogg'];
+      const mimeType = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+      const options = mimeType ? { mimeType, audioBitsPerSecond: 128000 } : {};
+      mediaRecorder = new MediaRecorder(stream, options);
       audioChunks = [];
       mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
       mediaRecorder.onstop = () => {
-        const finalType = mediaRecorder.mimeType || 'audio/webm';
+        const finalType = mediaRecorder.mimeType || mimeType || 'audio/mp4';
         recordedAudio = new Blob(audioChunks, { type: finalType });
+        console.log('Recorded:', recordedAudio.size, 'bytes, type:', finalType);
         document.getElementById('submit_btn').disabled = false;
       };
-      mediaRecorder.start(1000);
+      mediaRecorder.start(500);
       isRecording = true;
       document.getElementById('record_btn').textContent = '⏹️';
       document.getElementById('record_btn').classList.add('recording');
@@ -158,8 +159,12 @@ async function process() {
   btn.disabled = true;
   btn.textContent = selectedLang === 'th' ? '⏳ กำลังแปล...' : '⏳ Translating...';
   try {
+    const ext = recordedAudio.type.includes('mp4') ? 'mp4'
+      : recordedAudio.type.includes('ogg') ? 'ogg'
+      : recordedAudio.type.includes('wav') ? 'wav' : 'webm';
+    const filename = 'audio.' + ext;
     const formData = new FormData();
-    formData.append('audio', recordedAudio, 'audio.webm');
+    formData.append('audio', recordedAudio, filename);
     formData.append('lang', selectedLang);
     const transcribeRes = await fetch('/transcribe', { method: 'POST', body: formData });
     const transcribeData = await transcribeRes.json();
@@ -244,7 +249,7 @@ def transcribe():
         r = requests.post(
             'https://api.openai.com/v1/audio/transcriptions',
             headers={'Authorization': f'Bearer {OPENAI_API_KEY}'},
-            files={'file': ('audio.webm', audio_file.read(), audio_file.content_type or 'audio/webm')},
+            files={'file': (audio_file.filename or 'audio.webm', audio_file.read(), audio_file.content_type or 'audio/webm')},
             data={'model': 'whisper-1', 'language': whisper_lang},
             timeout=60
         )
