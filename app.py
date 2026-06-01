@@ -120,14 +120,18 @@ async function toggleRecord() {
   if (!isRecording) {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      mediaRecorder = new MediaRecorder(stream);
+      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+        : MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm'
+        : MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '';
+      mediaRecorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       audioChunks = [];
-      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.ondataavailable = e => { if (e.data && e.data.size > 0) audioChunks.push(e.data); };
       mediaRecorder.onstop = () => {
-        recordedAudio = new Blob(audioChunks, { type: 'audio/webm' });
+        const finalType = mediaRecorder.mimeType || 'audio/webm';
+        recordedAudio = new Blob(audioChunks, { type: finalType });
         document.getElementById('submit_btn').disabled = false;
       };
-      mediaRecorder.start();
+      mediaRecorder.start(1000);
       isRecording = true;
       document.getElementById('record_btn').textContent = '⏹️';
       document.getElementById('record_btn').classList.add('recording');
@@ -240,7 +244,7 @@ def transcribe():
         r = requests.post(
             'https://api.openai.com/v1/audio/transcriptions',
             headers={'Authorization': f'Bearer {OPENAI_API_KEY}'},
-            files={'file': ('audio.webm', audio_file.read(), 'audio/webm')},
+            files={'file': ('audio.webm', audio_file.read(), audio_file.content_type or 'audio/webm')},
             data={'model': 'whisper-1', 'language': whisper_lang},
             timeout=60
         )
